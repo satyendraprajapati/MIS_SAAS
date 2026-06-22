@@ -239,16 +239,33 @@ if file:
     p  = mapping['product_col']
     q  = mapping['qty_col']
 
-    if d: df[d] = pd.to_datetime(df[d], errors='coerce')
-    if v: df[v] = pd.to_numeric(df[v], errors='coerce')
-    if q: df[q] = pd.to_numeric(df[q], errors='coerce')
+    # Safe conversion — validate column exists and is a single column (not list)
+    def safe_to_datetime(dataframe, col):
+        if col and isinstance(col, str) and col in dataframe.columns:
+            dataframe[col] = pd.to_datetime(dataframe[col], errors='coerce')
+        return dataframe
+
+    def safe_to_numeric(dataframe, col):
+        if col and isinstance(col, str) and col in dataframe.columns:
+            # If column has mixed types, extract numbers only
+            try:
+                dataframe[col] = pd.to_numeric(dataframe[col], errors='coerce')
+            except Exception:
+                dataframe[col] = dataframe[col].astype(str).str.replace(
+                    r'[^\d.\-]', '', regex=True
+                )
+                dataframe[col] = pd.to_numeric(dataframe[col], errors='coerce')
+        return dataframe
+
+    df = safe_to_datetime(df, d)
+    df = safe_to_numeric(df, v)
+    df = safe_to_numeric(df, q)
 
     # ── SIDEBAR FILTERS ──
     st.sidebar.header("🔍 Filters")
     filtered = df.copy()
 
-    if d and d in df.columns:
-        df[d] = pd.to_datetime(df[d], errors='coerce')
+    if d and isinstance(d, str) and d in df.columns:
         min_d = df[d].min()
         max_d = df[d].max()
         if pd.notnull(min_d) and pd.notnull(max_d):
@@ -262,7 +279,11 @@ if file:
                     (filtered[d] <= pd.Timestamp(date_range[1]))
                 ]
 
-    if c and c in df.columns:
+    def valid(col):
+        """Check column is a valid single string and exists in df"""
+        return col and isinstance(col, str) and col in df.columns
+
+    if valid(c):
         cats = sorted(df[c].dropna().unique())
         sel = st.sidebar.multiselect(f"Filter by {c}", cats, default=cats)
         filtered = filtered[filtered[c].isin(sel)]
@@ -272,10 +293,10 @@ if file:
     st.subheader("📌 Key Metrics")
     m1,m2,m3,m4 = st.columns(4)
 
-    total_val   = filtered[v].sum()   if v else 0
-    total_qty   = filtered[q].sum()   if q else 0
-    total_cust  = filtered[n].nunique() if n else 0
-    total_rows  = len(filtered)
+    total_val  = filtered[v].sum()      if valid(v) else 0
+    total_qty  = filtered[q].sum()      if valid(q) else 0
+    total_cust = filtered[n].nunique()  if valid(n) else 0
+    total_rows = len(filtered)
 
     with m1:
         st.markdown(f"""<div class="metric-card">
@@ -308,47 +329,59 @@ if file:
     )
 
     # Monthly trend
-    if d:
-        st.subheader("📈 Sales Trend Over Time")
-        trend = filtered.copy()
-        trend['_month'] = trend[d].dt.to_period('M').astype(str)
-        monthly = trend.groupby('_month')[v].sum().reset_index()
-        fig = px.line(monthly, x='_month', y=v,
-                      title="Monthly Sales",
-                      color_discrete_sequence=['#f5c842'])
-        fig.update_layout(**CHART_BG)
-        st.plotly_chart(fig, use_container_width=True)
+    if valid(d) and valid(v):
+        try:
+            st.subheader("📈 Sales Trend Over Time")
+            trend = filtered.copy()
+            trend['_month'] = trend[d].dt.to_period('M').astype(str)
+            monthly = trend.groupby('_month')[v].sum().reset_index()
+            fig = px.line(monthly, x='_month', y=v,
+                          title="Monthly Sales",
+                          color_discrete_sequence=['#f5c842'])
+            fig.update_layout(**CHART_BG)
+            st.plotly_chart(fig, use_container_width=True)
+        except Exception as e:
+            st.warning(f"Trend chart skipped: {e}")
 
     # Category + Customer side by side
     col1, col2 = st.columns(2)
 
-    if c:
-        with col1:
-            st.subheader(f"🗺️ By {c}")
-            cat_df = filtered.groupby(c)[v].sum().sort_values(ascending=False).head(15).reset_index()
-            fig2 = px.bar(cat_df, x=c, y=v,
-                          color=v, color_continuous_scale='Oranges')
-            fig2.update_layout(**CHART_BG)
-            st.plotly_chart(fig2, use_container_width=True)
+    if valid(c) and valid(v):
+        try:
+            with col1:
+                st.subheader(f"🗺️ By {c}")
+                cat_df = filtered.groupby(c)[v].sum().sort_values(ascending=False).head(15).reset_index()
+                fig2 = px.bar(cat_df, x=c, y=v,
+                              color=v, color_continuous_scale='Oranges')
+                fig2.update_layout(**CHART_BG)
+                st.plotly_chart(fig2, use_container_width=True)
+        except Exception as e:
+            st.warning(f"Category chart skipped: {e}")
 
-    if n:
-        with col2:
-            st.subheader("🏆 Top 10 Customers")
-            top_n = filtered.groupby(n)[v].sum().sort_values(ascending=False).head(10).reset_index()
-            fig3 = px.bar(top_n, x=v, y=n, orientation='h',
-                          color_discrete_sequence=['#00e5a0'])
-            fig3.update_layout(**CHART_BG,
-                               yaxis={'categoryorder':'total ascending'})
-            st.plotly_chart(fig3, use_container_width=True)
+    if valid(n) and valid(v):
+        try:
+            with col2:
+                st.subheader("🏆 Top 10 Customers")
+                top_n = filtered.groupby(n)[v].sum().sort_values(ascending=False).head(10).reset_index()
+                fig3 = px.bar(top_n, x=v, y=n, orientation='h',
+                              color_discrete_sequence=['#00e5a0'])
+                fig3.update_layout(**CHART_BG,
+                                   yaxis={'categoryorder':'total ascending'})
+                st.plotly_chart(fig3, use_container_width=True)
+        except Exception as e:
+            st.warning(f"Customer chart skipped: {e}")
 
     # Product chart
-    if p:
-        st.subheader("📦 Top Products")
-        prod_df = filtered.groupby(p)[v].sum().sort_values(ascending=False).head(10).reset_index()
-        fig4 = px.pie(prod_df, names=p, values=v,
-                      title="Product-wise Sales Share")
-        fig4.update_layout(**CHART_BG)
-        st.plotly_chart(fig4, use_container_width=True)
+    if valid(p) and valid(v):
+        try:
+            st.subheader("📦 Top Products")
+            prod_df = filtered.groupby(p)[v].sum().sort_values(ascending=False).head(10).reset_index()
+            fig4 = px.pie(prod_df, names=p, values=v,
+                          title="Product-wise Sales Share")
+            fig4.update_layout(**CHART_BG)
+            st.plotly_chart(fig4, use_container_width=True)
+        except Exception as e:
+            st.warning(f"Product chart skipped: {e}")
 
     # ── DATA TABLE + DOWNLOAD ──
     st.markdown("---")
