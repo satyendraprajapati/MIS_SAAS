@@ -530,20 +530,20 @@ with st.sidebar:
     if valid(c, df):
         _cs = col_series(df, c)
         if _cs is not None:
-            cats = sorted(_cs.dropna().unique().tolist())
+            cats = sorted([str(x) for x in _cs.dropna().unique().tolist()])
             sel  = st.multiselect(c, cats, default=cats)
             _cf  = col_series(filtered, c)
             if _cf is not None:
-                filtered = filtered[_cf.isin(sel)]
+                filtered = filtered[_cf.astype(str).isin(sel)]
 
     if valid(m, df):
         _ms = col_series(df, m)
         if _ms is not None:
-            mgrs = sorted(_ms.dropna().unique().tolist())
+            mgrs = sorted([str(x) for x in _ms.dropna().unique().tolist()])
             selm = st.multiselect("Manager", mgrs, default=mgrs)
             _mf  = col_series(filtered, m)
             if _mf is not None:
-                filtered = filtered[_mf.isin(selm)]
+                filtered = filtered[_mf.astype(str).isin(selm)]
 
 # ═══════════════════════════════════════════════════════════════
 #  HEADER
