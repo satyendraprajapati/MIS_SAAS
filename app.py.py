@@ -118,14 +118,8 @@ BLUE   = '#4a9eff'
 def valid(col, df):
     return col and isinstance(col, str) and col in df.columns
 
-def fmt_inr(val):
-    if val >= 1e7:  return f"₹{val/1e7:.2f} Cr"
-    if val >= 1e5:  return f"₹{val/1e5:.1f} L"
-    if val >= 1e3:  return f"₹{val/1e3:.1f} K"
-    return f"₹{val:,.0f}"
-
-def get_series(df, col):
-    """Always return a single Series — handles duplicate column names."""
+def col_series(df, col):
+    """ALWAYS return a single Series — kills duplicate-column DataFrame issue."""
     if not valid(col, df):
         return None
     s = df[col]
@@ -133,14 +127,21 @@ def get_series(df, col):
         s = s.iloc[:, 0]
     return s
 
+def fmt_inr(val):
+    if val >= 1e7:  return f"₹{val/1e7:.2f} Cr"
+    if val >= 1e5:  return f"₹{val/1e5:.1f} L"
+    if val >= 1e3:  return f"₹{val/1e3:.1f} K"
+    return f"₹{val:,.0f}"
+
 def safe_numeric(df, col):
     if not valid(col, df): return df
     try:
-        s = get_series(df, col)
+        s = col_series(df, col)
         if s is None: return df
         cleaned = (s.astype(str)
                     .str.replace(r'[\u20b9,\s]', '', regex=True)
                     .str.replace(r'[^\d.\-]', '', regex=True))
+        df = df.copy()
         df[col] = pd.to_numeric(cleaned, errors='coerce')
     except Exception:
         pass
@@ -149,8 +150,9 @@ def safe_numeric(df, col):
 def safe_datetime(df, col):
     if not valid(col, df): return df
     try:
-        s = get_series(df, col)
+        s = col_series(df, col)
         if s is None: return df
+        df = df.copy()
         df[col] = pd.to_datetime(s, errors='coerce', dayfirst=True)
     except Exception:
         pass
@@ -416,6 +418,17 @@ if df_raw.columns.str.startswith('Unnamed').sum() > len(df_raw.columns)*0.5:
 df_raw.columns = [str(c).strip() for c in df_raw.columns]
 col_list = [c for c in df_raw.columns if 'Unnamed' not in str(c)]
 df_raw   = df_raw[col_list]
+# Rename duplicate columns: Value, Value → Value, Value_1
+cols = []
+seen = {}
+for c in df_raw.columns:
+    if c in seen:
+        seen[c] += 1
+        cols.append(f"{c}_{seen[c]}")
+    else:
+        seen[c] = 0
+        cols.append(c)
+df_raw.columns = cols
 
 # ── AI COLUMN DETECTION ──────────────────────────────────────
 with st.spinner("🤖 AI is reading your file structure..."):
@@ -515,11 +528,14 @@ st.markdown(f"""
 # ═══════════════════════════════════════════════════════════════
 #  KPI CARDS
 # ═══════════════════════════════════════════════════════════════
-total_val  = filtered[v].sum()      if valid(v,filtered) else 0
-total_qty  = filtered[q].sum()      if valid(q,filtered) else 0
-total_cust = filtered[n].nunique()  if valid(n,filtered) else 0
+_vs = col_series(filtered, v)
+_qs = col_series(filtered, q)
+_ns = col_series(filtered, n)
+total_val  = float(_vs.sum())      if _vs is not None else 0
+total_qty  = float(_qs.sum())      if _qs is not None else 0
+total_cust = int(_ns.nunique())    if _ns is not None else 0
 total_txn  = len(filtered)
-avg_order  = total_val/total_txn    if total_txn else 0
+avg_order  = total_val/total_txn   if total_txn else 0
 
 k1,k2,k3,k4 = st.columns(4)
 for col_el, num, lbl, delta in [
