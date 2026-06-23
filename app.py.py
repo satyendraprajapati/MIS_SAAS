@@ -511,25 +511,39 @@ with st.sidebar:
     filtered = df.copy()
 
     if valid(d, df):
-        dmin = df[d].min()
-        dmax = df[d].max()
+        _ds = col_series(df, d)
+        if _ds is not None:
+            dmin = _ds.min()
+            dmax = _ds.max()
+        else:
+            dmin = dmax = None
         if pd.notnull(dmin) and pd.notnull(dmax):
             dr = st.date_input("Date Range",
                 [dmin.date(), dmax.date()])
             if len(dr)==2:
-                filtered = filtered[
-                    (filtered[d]>=pd.Timestamp(dr[0])) &
-                    (filtered[d]<=pd.Timestamp(dr[1]))]
+                _df2 = col_series(filtered, d)
+                if _df2 is not None:
+                    filtered = filtered[
+                        (_df2 >= pd.Timestamp(dr[0])) &
+                        (_df2 <= pd.Timestamp(dr[1]))]
 
     if valid(c, df):
-        cats = sorted(df[c].dropna().unique().tolist())
-        sel  = st.multiselect(c, cats, default=cats)
-        filtered = filtered[filtered[c].isin(sel)]
+        _cs = col_series(df, c)
+        if _cs is not None:
+            cats = sorted(_cs.dropna().unique().tolist())
+            sel  = st.multiselect(c, cats, default=cats)
+            _cf  = col_series(filtered, c)
+            if _cf is not None:
+                filtered = filtered[_cf.isin(sel)]
 
     if valid(m, df):
-        mgrs = sorted(df[m].dropna().unique().tolist())
-        selm = st.multiselect("Manager", mgrs, default=mgrs)
-        filtered = filtered[filtered[m].isin(selm)]
+        _ms = col_series(df, m)
+        if _ms is not None:
+            mgrs = sorted(_ms.dropna().unique().tolist())
+            selm = st.multiselect("Manager", mgrs, default=mgrs)
+            _mf  = col_series(filtered, m)
+            if _mf is not None:
+                filtered = filtered[_mf.isin(selm)]
 
 # ═══════════════════════════════════════════════════════════════
 #  HEADER
@@ -722,7 +736,11 @@ stats = {
 }
 if valid(v,filtered) and valid(d,filtered):
     try:
-        filtered['_mo'] = filtered[d].dt.to_period('M').astype(str)
+        _dser = col_series(filtered, d)
+        if _dser is not None:
+            filtered['_mo'] = _dser.dt.to_period('M').astype(str)
+        else:
+            filtered['_mo'] = 'Unknown'
         mo_sales = filtered.groupby('_mo')[v].sum()
         stats["best_month"]  = str(mo_sales.idxmax())
         stats["worst_month"] = str(mo_sales.idxmin())
@@ -806,7 +824,11 @@ dl1.download_button(
 )
 if valid(v,filtered) and valid(d,filtered):
     try:
-        filtered['_mo'] = filtered[d].dt.to_period('M').astype(str)
+        _dser = col_series(filtered, d)
+        if _dser is not None:
+            filtered['_mo'] = _dser.dt.to_period('M').astype(str)
+        else:
+            filtered['_mo'] = 'Unknown'
         mo_sum = filtered.groupby('_mo')[v].sum().reset_index()
         mo_sum.columns = ['Month','Sales']
         dl2.download_button(
