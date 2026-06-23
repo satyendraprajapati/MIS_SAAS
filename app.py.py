@@ -124,18 +124,36 @@ def fmt_inr(val):
     if val >= 1e3:  return f"₹{val/1e3:.1f} K"
     return f"₹{val:,.0f}"
 
+def get_series(df, col):
+    """Always return a single Series — handles duplicate column names."""
+    if not valid(col, df):
+        return None
+    s = df[col]
+    if isinstance(s, pd.DataFrame):
+        s = s.iloc[:, 0]
+    return s
+
 def safe_numeric(df, col):
     if not valid(col, df): return df
     try:
-        df[col] = pd.to_numeric(df[col], errors='coerce')
+        s = get_series(df, col)
+        if s is None: return df
+        cleaned = (s.astype(str)
+                    .str.replace(r'[\u20b9,\s]', '', regex=True)
+                    .str.replace(r'[^\d.\-]', '', regex=True))
+        df[col] = pd.to_numeric(cleaned, errors='coerce')
     except Exception:
-        df[col] = df[col].astype(str).str.replace(r'[^\d.\-]','',regex=True)
-        df[col] = pd.to_numeric(df[col], errors='coerce')
+        pass
     return df
 
 def safe_datetime(df, col):
     if not valid(col, df): return df
-    df[col] = pd.to_datetime(df[col], errors='coerce')
+    try:
+        s = get_series(df, col)
+        if s is None: return df
+        df[col] = pd.to_datetime(s, errors='coerce', dayfirst=True)
+    except Exception:
+        pass
     return df
 
 # ── AI COLUMN DETECTION ──────────────────────────────────────
