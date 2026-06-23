@@ -389,22 +389,45 @@ try:
     else:
         xl = pd.ExcelFile(uploaded)
         sheets = xl.sheet_names
-        # Auto pick sheet with most rows
-        best_sheet = sheets[0]
-        best_rows  = 0
+        # ── SHEET SELECTOR — shown BEFORE data loads ──
+        # Score each sheet: prefer sheets with many rows + clean columns
+        sheet_scores = {}
         for s in sheets:
             try:
-                tmp = pd.read_excel(uploaded, sheet_name=s, nrows=5)
-                if len(tmp.columns) > best_rows:
-                    best_rows  = len(tmp.columns)
-                    best_sheet = s
-            except: pass
+                tmp = pd.read_excel(uploaded, sheet_name=s, nrows=10)
+                # Score = rows × non-unnamed columns
+                clean_cols = sum(1 for c in tmp.columns if 'Unnamed' not in str(c))
+                full_df    = pd.read_excel(uploaded, sheet_name=s)
+                sheet_scores[s] = len(full_df) * clean_cols
+            except:
+                sheet_scores[s] = 0
 
+        best_sheet = max(sheet_scores, key=sheet_scores.get)
+
+        # Build label showing rows for each sheet
+        sheet_labels = {}
+        for s in sheets:
+            try:
+                n = pd.read_excel(uploaded, sheet_name=s).shape[0]
+                sheet_labels[s] = f"{s}  ({n:,} rows)"
+            except:
+                sheet_labels[s] = s
+
+        # Always show selector when multiple sheets
         if len(sheets) > 1:
-            with st.sidebar:
-                best_sheet = st.selectbox("📋 Sheet", sheets,
-                    index=sheets.index(best_sheet))
-        df_raw     = pd.read_excel(uploaded, sheet_name=best_sheet)
+            st.info(f"📋 **{len(sheets)} sheets found** — select the one with your sales data:")
+            selected_label = st.selectbox(
+                "Select Sheet",
+                options=list(sheet_labels.values()),
+                index=list(sheet_labels.keys()).index(best_sheet),
+                help="Sheet with most data rows is pre-selected"
+            )
+            # Reverse lookup label → sheet name
+            best_sheet = [k for k,v in sheet_labels.items()
+                          if v == selected_label][0]
+            st.success(f"✅ Using sheet: **{best_sheet}**")
+
+        df_raw = pd.read_excel(uploaded, sheet_name=best_sheet)
         sheet_used = best_sheet
 except Exception as e:
     st.error(f"❌ File read error: {e}")
